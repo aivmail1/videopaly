@@ -1,13 +1,3 @@
-# GitHub Actions：云端构建 APK（无需本地 Linux）
-# 自适应：仓库根即本工程内容，或仓库根含 android_app/ 子目录，均可。
-#
-# CI 要点（2026-11 定稿）：
-# 1) ubuntu-24.04 runner 不再预装 Android SDK —— 必须自己下载 cmdline-tools；
-# 2) buildozer 在 ~/.buildozer/android/platform/android-sdk 期望旧版布局
-#    （tools/bin/sdkmanager），需放软链接补位；
-# 3) license 必须预接受（写 licenses/ 目录后 buildozer 自己的安装也不再弹窗）；
-# 4) 固定 buildozer==1.5.0 + cython<3（p4a 2023 与 Cython 3 不兼容）。
-
 name: Build APK
 
 on:
@@ -17,57 +7,104 @@ on:
 
 jobs:
   build:
-    # 关键：固定 ubuntu-22.04。ubuntu-latest 已是 26.04，autoconf/libtool 太新，
-    # p4a 的 libffi 老配方 autoreconf 会挂（AC_CANONICAL_SYSTEM 等 obsolete 宏不兼容）
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      ANDROID_HOME: ${{ env.HOME }}/.buildozer/android/platform/android-sdk
+      ANDROIDSDK: ${{ env.HOME }}/.buildozer/android/platform/android-sdk
+      ANDROIDNDK: ${{ env.HOME }}/.buildozer/android/platform/android-ndk-r25b
+      ANDROIDAPI: "33"
+      NDKAPI: "24"
+
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Setup Java JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Python
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install buildozer (pinned)
-        run: pip install "buildozer==1.5.0" "cython<3"
-
-      - name: Pre-init buildozer SDK & accept licenses
+      - name: Install system build dependencies
         run: |
-          set -x
-          BSDK="$HOME/.buildozer/android/platform/android-sdk"
-          mkdir -p "$BSDK/cmdline-tools" /tmp/ct
-          curl -sSLo /tmp/ct.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q /tmp/ct.zip -d /tmp/ct
-          mv /tmp/ct/cmdline-tools "$BSDK/cmdline-tools/latest"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ccache \
+            git \
+            zip \
+            unzip \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            zlib1g-dev \
+            libffi-dev \
+            libssl-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            libtinfo6 \
+            cmake \
+            lld \
+            openjdk-17-jdk
+
+      - name: Install Rust toolchain (for cryptography)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Cache Buildozer & SDK/NDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            ~/.gradle
+            ~/.cargo/registry
+          key: buildozer-sdk25b-api33-py311-${{ hashFiles('**/buildozer.spec', 'requirements.txt') }}
+          restore-keys: |
+            buildozer-sdk25b-api33-py311-
+            buildozer-
+
+      - name: Install buildozer & cython
+        run: |
+          python -m pip install --upgrade pip wheel setuptools
+          pip install "buildozer==1.5.0" "cython<3"
+
+      - name: Pre-init Android SDK & accept licenses
+        run: |
+          set -euo pipefail
+          BSDK="$ANDROID_HOME"
+          if [ ! -d "$BSDK/cmdline-tools/latest" ]; then
+            mkdir -p "$BSDK/cmdline-tools" /tmp/ct
+            curl -sSLo /tmp/ct.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q /tmp/ct.zip -d /tmp/ct
+            mv /tmp/ct/cmdline-tools "$BSDK/cmdline-tools/latest"
+            rm -rf /tmp/ct /tmp/ct.zip
+          fi
           SDKM="$BSDK/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null 2>&1 || true
-          "$SDKM" "build-tools;37.0.0" "platform-tools" "platforms;android-33" > /dev/null 2>&1 || true
+          "$SDKM" "build-tools;33.0.2" "platform-tools" "platforms;android-33"
           mkdir -p "$BSDK/tools/bin"
           ln -sf "$SDKM" "$BSDK/tools/bin/sdkmanager"
-          echo "== 预装结果（应能看到 build-tools 目录含 37.0.0）=="
-          ls "$BSDK"
-          ls "$BSDK/build-tools" || true
-
-      - name: Show environment
-        run: |
-          python -V
-          pip show buildozer Cython | head -20
 
       - name: Build debug APK
         run: |
-          if [ -f android_app/buildozer.spec ]; then cd android_app; fi
-          ls -la
+          set -euo pipefail
+          APP_DIR="."
+          if [ -f "android_app/buildozer.spec" ]; then
+            APP_DIR="android_app"
+          fi
+          cd "$APP_DIR"
           buildozer version
           buildozer android debug
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: videoplayerdl-apk
