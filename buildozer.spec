@@ -23,9 +23,6 @@ android.archs = arm64-v8a, armeabi-v7a
 android.permissions = INTERNET, ACCESS_NETWORK_STATE, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE, WAKE_LOCK
 android.api = 33
 android.minapi = 24
-# 显式固定 build-tools 版本（与 android.api 33 配套；避免新 runner 默认拉 37
-# 触发 "Aidl not found / license not accepted" 失败）
-android.gradle.build_tools = 33.0.2
 android.ndk = 25b
 
 # 屏幕方向：竖屏（标准键名不带 android. 前缀）
