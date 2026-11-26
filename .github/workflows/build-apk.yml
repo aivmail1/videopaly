@@ -36,22 +36,26 @@ jobs:
       - name: Install buildozer (pinned)
         run: pip install "buildozer==1.5.0" "cython<3"
 
-      - name: Pre-install Android SDK licenses & build-tools
+      - name: Pre-init buildozer SDK & accept licenses
         run: |
-          # buildozer 只会自动装平台/ndk，build-tools 由 SDKMANAGER 静默补齐；
-          # 预先接受全部 license 并装 33/34 两档，避免 aidl not found
-          SDKMANAGER="cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -f "$SDKMANAGER" ]; then
-            mkdir -p ~/android-sdk-tmp/cmdline-tools
-            cd ~/android-sdk-tmp/cmdline-tools
-            curl -sSLo tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-            unzip -q tools.zip
-            mv cmdline-tools latest
-            cd -
-            SDKMANAGER="$HOME/android-sdk-tmp/cmdline-tools/latest/bin/sdkmanager"
+          # 根因：buildozer 首跑时向“自己的 SDK 目录”装最新 build-tools 并要求
+          # 交互接受 license，CI 里答不上来(默认 N)→ 组件被跳过→ aidl 缺失。
+          # 解法：运行 buildozer 前，就在它专属的 SDK 路径里初始化 cmdline-tools、
+          # 预接受全部 licenses、并把最新 build-tools 预装到位（37 就 37，已接受
+          # 许可后 37 对 p4a 完全兼容）。buildozer 起来后发现组件齐了，直接过。
+          BSDK="$HOME/.buildozer/android/platform/android-sdk"
+          SYSTEM_SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -f "$SYSTEM_SDKM" ]; then
+            SYSTEM_SDKM=$(find /usr/local/lib/android/sdk -name sdkmanager 2>/dev/null | head -1)
           fi
-          yes | "$SDKMANAGER" --licenses > /dev/null || true
-          "$SDKMANAGER" "build-tools;33.0.2" "platform-tools" "platforms;android-33" > /dev/null
+          mkdir -p "$BSDK"
+          yes | "$SYSTEM_SDKM" --sdk_root="$BSDK" "cmdline-tools;latest" > /dev/null 2>&1 || true
+          BSDKM="$BSDK/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$BSDKM" --licenses > /dev/null 2>&1 || true
+          "$BSDKM" "build-tools;37.0.0" "platform-tools" "platforms;android-33" > /dev/null 2>&1 || true
+          echo "== 预装结果 =="
+          ls "$BSDK" || true
+          ls "$BSDK/build-tools" || true
 
       - name: Show environment
         run: |
