@@ -1,12 +1,12 @@
 # GitHub Actions：云端构建 APK（无需本地 Linux）
 # 自适应：仓库根即本工程内容，或仓库根含 android_app/ 子目录，均可。
-# 触发：push 到 main，或在 Actions 页手动 Run workflow。
 #
-# 版本策略（2026-11 调整）：
-# - actions 升级到 v5（v4 已弃用告警）
-# - 固定 buildozer==1.5.0 + Cython 0.29.x：python-for-android 2023 与
-#   Cython 3 不兼容，"pip install buildozer cython" 拉到 Cython 3 会
-#   早期立刻失败（正是 50 秒即挂的典型症状）
+# CI 要点（2026-11 定稿）：
+# 1) ubuntu-24.04 runner 不再预装 Android SDK —— 必须自己下载 cmdline-tools；
+# 2) buildozer 在 ~/.buildozer/android/platform/android-sdk 期望旧版布局
+#    （tools/bin/sdkmanager），需放软链接补位；
+# 3) license 必须预接受（写 licenses/ 目录后 buildozer 自己的安装也不再弹窗）；
+# 4) 固定 buildozer==1.5.0 + cython<3（p4a 2023 与 Cython 3 不兼容）。
 
 name: Build APK
 
@@ -38,23 +38,19 @@ jobs:
 
       - name: Pre-init buildozer SDK & accept licenses
         run: |
-          # 根因：buildozer 首跑时向“自己的 SDK 目录”装最新 build-tools 并要求
-          # 交互接受 license，CI 里答不上来(默认 N)→ 组件被跳过→ aidl 缺失。
-          # 解法：运行 buildozer 前，就在它专属的 SDK 路径里初始化 cmdline-tools、
-          # 预接受全部 licenses、并把最新 build-tools 预装到位（37 就 37，已接受
-          # 许可后 37 对 p4a 完全兼容）。buildozer 起来后发现组件齐了，直接过。
+          set -x
           BSDK="$HOME/.buildozer/android/platform/android-sdk"
-          SYSTEM_SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -f "$SYSTEM_SDKM" ]; then
-            SYSTEM_SDKM=$(find /usr/local/lib/android/sdk -name sdkmanager 2>/dev/null | head -1)
-          fi
-          mkdir -p "$BSDK"
-          yes | "$SYSTEM_SDKM" --sdk_root="$BSDK" "cmdline-tools;latest" > /dev/null 2>&1 || true
-          BSDKM="$BSDK/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$BSDKM" --licenses > /dev/null 2>&1 || true
-          "$BSDKM" "build-tools;37.0.0" "platform-tools" "platforms;android-33" > /dev/null 2>&1 || true
-          echo "== 预装结果 =="
-          ls "$BSDK" || true
+          mkdir -p "$BSDK/cmdline-tools" /tmp/ct
+          curl -sSLo /tmp/ct.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/ct.zip -d /tmp/ct
+          mv /tmp/ct/cmdline-tools "$BSDK/cmdline-tools/latest"
+          SDKM="$BSDK/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          "$SDKM" "build-tools;37.0.0" "platform-tools" "platforms;android-33" > /dev/null 2>&1 || true
+          mkdir -p "$BSDK/tools/bin"
+          ln -sf "$SDKM" "$BSDK/tools/bin/sdkmanager"
+          echo "== 预装结果（应能看到 build-tools 目录含 37.0.0）=="
+          ls "$BSDK"
           ls "$BSDK/build-tools" || true
 
       - name: Show environment
