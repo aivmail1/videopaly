@@ -17,7 +17,9 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # 关键：固定 ubuntu-22.04。ubuntu-latest 已是 26.04，autoconf/libtool 太新，
+    # p4a 的 libffi 老配方 autoreconf 会挂（AC_CANONICAL_SYSTEM 等 obsolete 宏不兼容）
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
