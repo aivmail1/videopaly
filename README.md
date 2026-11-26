@@ -129,6 +129,15 @@ buildozer android debug
 或仓库根含 `android_app/` 子目录）。把代码推到 GitHub，push 到 main 或在 Actions
 页手动 Run，APK 在 Artifacts 下载。
 
+yml 中以下写法是排障定稿，请勿改动：
+
+- `runs-on: ubuntu-22.04` 必须固定。`ubuntu-latest` 已是 26.04，预装的
+  autoconf/libtool 太新，python-for-android 编译 libffi 时 autoreconf 会失败
+  （`AC_CANONICAL_SYSTEM is obsolete` 等宏报错）；
+- `buildozer==1.5.0 + cython<3` 固定版本（p4a 2023 与 Cython 3 不兼容）；
+- 「Pre-init buildozer SDK & accept licenses」步骤不可删：buildozer 期望旧版
+  SDK 目录布局（`tools/bin/sdkmanager`），且 build-tools 37 的许可证需预接受。
+
 ## 桌面预览（可选）
 
 ```bash
